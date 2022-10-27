@@ -3,23 +3,23 @@ package check
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 
-case class Property[AnyVal](ante: Sequence[AnyVal], post: Sequence[AnyVal])
+//case class Property[+T](ante: Sequence[T], post: Sequence[T])
 
-sealed trait Sequence[AnyVal]
-case class AtomicProp[AnyVal] (fn: AnyVal => Boolean) extends Sequence[AnyVal]
-case class Concat(seq1: Sequence[AnyVal], seq2: Sequence[AnyVal]) extends Sequence[AnyVal]
-case class Delay(num_txns: Int) extends Sequence[AnyVal]
-case class Repeated(seq: Sequence[AnyVal], repeats: Int) extends Sequence[AnyVal]
-case class UnboundedRepeat(seq: Sequence[AnyVal], min_repeat: Int) extends Sequence[AnyVal]
-case class Or(seq1: Sequence[AnyVal], seq2: Sequence[AnyVal]) extends Sequence[AnyVal]
+sealed trait Sequence[+T]
+case class AtomicProp[T] (fn: T => Boolean) extends Sequence[T]
+case class Concat[T](seq1: Sequence[T], seq2: Sequence[T]) extends Sequence[T]
+case class Delay(num_txns: Int) extends Sequence[Nothing]
+case class Repeated[T](seq: Sequence[T], repeats: Int) extends Sequence[T]
+case class UnboundedRepeat[T](seq: Sequence[T], min_repeat: Int) extends Sequence[T]
+case class Or[T](seq1: Sequence[T], seq2: Sequence[T]) extends Sequence[T]
 
 // sealed trait Operators
 // case class Stable[T]
 
 
-class State(property: Sequence[AnyVal], initial: (AnyVal, Int)) {
+class State[T](property: Sequence[T], initial: (T, Int)) {
     // State class to keep track of the sequence states
-    val atomicSeqs = mutable.Queue[Sequence[AnyVal]]()
+    val atomicSeqs = mutable.Queue[Sequence[T]]()
     var isSuccess = false
     var isFailed = false
     var successIdx = mutable.Seq(initial._2, None)
@@ -29,16 +29,16 @@ class State(property: Sequence[AnyVal], initial: (AnyVal, Int)) {
     //expandStates(property.post)
     expandStates(property)
     
-    def expandStates(sequence: Sequence[AnyVal]): Boolean = {
+    def expandStates(sequence: Sequence[T]): Boolean = {
         var success = true
         sequence match {
-            case _: AtomicProp[AnyVal] => atomicSeqs += sequence
-            case concatSeq: Concat =>  {
+            case _: AtomicProp[T] => atomicSeqs += sequence
+            case concatSeq: Concat[T] =>  {
                 val success1 = expandStates(concatSeq.seq1)
                 val success2 = expandStates(concatSeq.seq2)
             }
             case _: Delay => atomicSeqs += sequence
-            case repeatSeq: Repeated => {
+            case repeatSeq: Repeated[T] => {
                 for (idx <- 0 until repeatSeq.repeats) {
                     expandStates(repeatSeq.seq)
                 }
@@ -52,13 +52,13 @@ class State(property: Sequence[AnyVal], initial: (AnyVal, Int)) {
         success
     }
 
-    def advanceState(txn: AnyVal, idx: Int) = {
+    def advanceState[T](txn: T, idx: Int) = {
         val nextCond = atomicSeqs.front
         if (delay > 1) { // if delay is 1, the last cycle of adding in delay has already been counted
             delay = delay - 1
         } else {
             val isTrue = nextCond match {
-                case atomic: AtomicProp[AnyVal] => atomic.fn(txn)
+                case atomic: AtomicProp[T] => atomic.fn(txn)
                 case delayState: Delay => {
                     delay = delay + delayState.num_txns
                     true
@@ -79,14 +79,14 @@ class State(property: Sequence[AnyVal], initial: (AnyVal, Int)) {
     }
 }
 
-class CheckSequence {
-    def checkSeqWithStates(txns: Seq[AnyVal], property: Sequence[AnyVal]): (ListBuffer[mutable.Seq[Matchable]], ListBuffer[Matchable]) = {
+class CheckSequence[T] {
+    def checkSeqWithStates[T](txns: Seq[T], property: Sequence[T]): (ListBuffer[mutable.Seq[Matchable]], ListBuffer[Matchable]) = {
         val isSuccess = ListBuffer[mutable.Seq[Matchable]]()
         //val ante_cond = property.ante
         //val post_cond = property.post
-        val stateLists = ListBuffer[State]()
+        val stateLists = ListBuffer[State[T]]()
         
-        val state = new State(property, (txns(0), 0))
+        val state = new State[T](property, (txns(0), 0))
         txns.zipWithIndex.foreach {
             case (txn, idx) => {
                 val state = new State(property, (txn, idx))
